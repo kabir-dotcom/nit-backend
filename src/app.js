@@ -1,3 +1,4 @@
+const fs = require('fs');
 const path = require('path');
 const express = require('express');
 const cors = require('cors');
@@ -35,8 +36,9 @@ app.get('/api/health', (_req, res) => {
 app.use('/api', routes);
 
 const clientDistPath = path.join(__dirname, '..', '..', 'client', 'dist');
+const hasClientBuild = fs.existsSync(path.join(clientDistPath, 'index.html'));
 
-if (process.env.NODE_ENV === 'production') {
+if (process.env.NODE_ENV === 'production' && hasClientBuild) {
   app.use(express.static(clientDistPath));
 
   app.get('*', (req, res, next) => {

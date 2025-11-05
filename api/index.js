@@ -1,15 +1,18 @@
 const dotenv = require('dotenv');
-const app = require('../src/app');
-const connectDB = require('../src/config/db');
 
 dotenv.config();
+
+const app = require('../src/app');
+const connectDB = require('../src/config/db');
 
 module.exports = async (req, res) => {
   try {
     await connectDB();
-    return app(req, res);
+    return await app(req, res);
   } catch (error) {
     console.error('Request handling failed:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    if (!res.headersSent) {
+      res.status(500).json({ message: 'Internal server error' });
+    }
   }
 };
