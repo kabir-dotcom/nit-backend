@@ -84,7 +84,7 @@ function normalizeMessages(messages, fallbackText) {
 // ✅ POST /api/chat
 router.post("/chat", async (req, res) => {
   const timeoutMs = Number(
-    process.env.OPENAI_TIMEOUT_MS || (process.env.VERCEL ? 8000 : 25000)
+    process.env.OPENAI_TIMEOUT_MS || (process.env.VERCEL ? 15000  : 25000)
   );
   let timeoutId;
   const timeoutReply =
