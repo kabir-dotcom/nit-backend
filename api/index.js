@@ -6,7 +6,7 @@ dotenv.config();
 
 let isConnected = false; // ✅ Avoid reconnecting every request
 
-module.exports = async (req, res) => {
+async function handler(req, res) {
   try {
     if (!isConnected) {
       await connectDB();
@@ -22,4 +22,7 @@ module.exports = async (req, res) => {
       res.status(500).json({ message: "Internal server error" });
     }
   }
-};
+}
+
+module.exports = handler;
+module.exports.default = handler;
