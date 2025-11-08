@@ -83,6 +83,11 @@ function normalizeMessages(messages, fallbackText) {
 
 // ✅ POST /api/chat
 router.post("/chat", async (req, res) => {
+  const timeoutMs = Number(process.env.OPENAI_TIMEOUT_MS || 30000);
+  let timeoutId;
+  const timeoutReply =
+    "I needed a little more time to analyze fully. Meanwhile, follow core NIT basics: detox gently, hydrate well, load colorful fruits/greens for enzymes, and keep your rest schedule consistent.";
+
   try {
     console.log("🧠 NIT Chat API hit");
 
@@ -98,11 +103,18 @@ router.post("/chat", async (req, res) => {
       });
     }
 
-    const completion = await client.chat.completions.create({
-      model: "gpt-4o-mini",
-      temperature: 0.7,
-      messages: [SYSTEM_MESSAGE, ...messages],
-    });
+    const controller = new AbortController();
+    timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    const completion = await client.chat.completions.create(
+      {
+        model: "gpt-4o-mini",
+        temperature: 0.7,
+        max_tokens: Number(process.env.OPENAI_MAX_TOKENS || 600),
+        messages: [SYSTEM_MESSAGE, ...messages],
+      },
+      { signal: controller.signal }
+    );
 
     const reply =
       completion?.choices?.[0]?.message?.content?.trim() ||
@@ -111,13 +123,22 @@ router.post("/chat", async (req, res) => {
     console.log("✅ NIT reply generated successfully");
     return res.status(200).json({ reply });
   } catch (error) {
+    const timedOut =
+      error?.name === "AbortError" ||
+      /timed out|abort/i.test(error?.message || "");
     console.error("❌ Chat route error:", error.message);
 
     // Graceful fallback
+    if (timedOut) {
+      return res.status(200).json({ reply: timeoutReply });
+    }
+
     return res.status(200).json({
       reply:
         "There seems to be a temporary issue processing your query. But here’s a general NIT guideline: detoxify, hydrate, and restore immune balance with vitamins and minerals.",
     });
+  } finally {
+    clearTimeout(timeoutId);
   }
 });
 

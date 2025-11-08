@@ -102,19 +102,31 @@ router.post('/chat', async (req, res) => {
     });
   }
 
+  let timeoutId;
+  const fallbackReply =
+    'Natural Immunotherapy guidance: stay hydrated, support detox with warm water and fiber-rich foods, use vitamin- and mineral-dense meals, and rest well to boost immunity.';
+
   try {
-    const completion = await getClient().chat.completions.create({
-      model: 'gpt-4o-mini',
-      temperature: 0.7,
-      messages: [
-        {
-          role: 'system',
-          content:
-            'You are a Natural Immunotherapy (NIT) expert assistant for Subhankar Sarkar. Natural Immunotherapy is a holistic health system focused on restoring immune balance through nutrition, detoxification, cellular repair, and natural boosters; this topic is always health-related. Always provide clear, practical guidance on how Natural Immunotherapy addresses the user’s concern. You must answer any question related to diseases, immunity, recovery, vitamins, minerals, detoxification, enzymes, boosters, chronic conditions (such as cancer, thalassemia, CKD), nutrition, or health improvement. Only refuse questions that are clearly outside health, wellness, or the human body (e.g., politics, technology, sports). When refusing, reply: "Please ask me only health-related questions about your body, immunity, or recovery." Never refuse to discuss Natural Immunotherapy itself and always explain its natural protocols, nutrients, or detox strategies that apply to the situation. Maintain an encouraging, educational tone grounded in Natural Immunotherapy principles.',
-        },
-        ...sanitizedMessages,
-      ],
-    });
+    const timeoutMs = Number(process.env.OPENAI_TIMEOUT_MS || 30000);
+    const controller = new AbortController();
+    timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    const completion = await getClient().chat.completions.create(
+      {
+        model: 'gpt-4o-mini',
+        temperature: 0.7,
+        max_tokens: Number(process.env.OPENAI_MAX_TOKENS || 600),
+        messages: [
+          {
+            role: 'system',
+            content:
+              'You are a Natural Immunotherapy (NIT) expert assistant for Subhankar Sarkar. Natural Immunotherapy is a holistic health system focused on restoring immune balance through nutrition, detoxification, cellular repair, and natural boosters; this topic is always health-related. Always provide clear, practical guidance on how Natural Immunotherapy addresses the user’s concern. You must answer any question related to diseases, immunity, recovery, vitamins, minerals, detoxification, enzymes, boosters, chronic conditions (such as cancer, thalassemia, CKD), nutrition, or health improvement. Only refuse questions that are clearly outside health, wellness, or the human body (e.g., politics, technology, sports). When refusing, reply: "Please ask me only health-related questions about your body, immunity, or recovery." Never refuse to discuss Natural Immunotherapy itself and always explain its natural protocols, nutrients, or detox strategies that apply to the situation. Maintain an encouraging, educational tone grounded in Natural Immunotherapy principles.',
+          },
+          ...sanitizedMessages,
+        ],
+      },
+      { signal: controller.signal }
+    );
 
     const reply =
       completion?.choices?.[0]?.message?.content?.trim() ||
@@ -127,12 +139,28 @@ router.post('/chat', async (req, res) => {
       error?.message ||
       'Unknown error';
 
+    const timedOut =
+      error?.name === 'AbortError' || /timed out|abort/i.test(detail || '');
+
     console.error('OpenAI chat route failed:', detail);
+
+    if (timedOut) {
+      return res.status(200).json({
+        reply:
+          'I needed extra time to craft a full response, but here is a quick NIT tip: focus on detox (warm water + fiber), balanced vitamins/minerals, and deep rest so your immunity can recover.',
+        detail,
+      });
+    }
 
     return res.status(500).json({
       message: 'Unable to process the chat request at this time.',
       detail,
+      fallback: fallbackReply,
     });
+  } finally {
+    if (typeof timeoutId !== 'undefined') {
+      clearTimeout(timeoutId);
+    }
   }
 });
 
