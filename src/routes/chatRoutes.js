@@ -164,4 +164,11 @@ router.post('/chat', async (req, res) => {
   }
 });
 
+router.get('/chat/test', (_req, res) => {
+  res.status(200).json({
+    message: 'Chat service is reachable',
+    timestamp: new Date().toISOString(),
+  });
+});
+
 module.exports = router;
