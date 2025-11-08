@@ -21,20 +21,64 @@ const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+function toPlainText(input) {
+  if (input == null) {
+    return "";
+  }
+
+  if (typeof input === "string") {
+    return input.trim();
+  }
+
+  if (Array.isArray(input)) {
+    return input
+      .map((item) => toPlainText(item))
+      .filter(Boolean)
+      .join("\n\n")
+      .trim();
+  }
+
+  if (typeof input === "object") {
+    if (typeof input.text === "string") {
+      return input.text.trim();
+    }
+
+    if (typeof input.content === "string") {
+      return input.content.trim();
+    }
+
+    return "";
+  }
+
+  return String(input).trim();
+}
+
 // ✅ Helper: normalize messages
-function normalizeMessages(messages) {
-  if (!Array.isArray(messages)) return [];
-  return messages
-    .map((item) => {
-      if (!item || typeof item !== "object") return null;
-      const role = item.role?.trim() || "user";
-      const content =
-        typeof item.content === "string"
-          ? item.content.trim()
-          : String(item.content ?? "").trim();
-      return content ? { role, content } : null;
-    })
-    .filter(Boolean);
+function normalizeMessages(messages, fallbackText) {
+  const normalized = Array.isArray(messages)
+    ? messages
+        .map((item) => {
+          if (!item || typeof item !== "object") {
+            return null;
+          }
+
+          const role = item.role?.trim() || "user";
+          const content = toPlainText(item.content);
+
+          return content ? { role, content } : null;
+        })
+        .filter(Boolean)
+    : [];
+
+  if (!normalized.length && fallbackText) {
+    const fallbackContent = toPlainText(fallbackText);
+
+    if (fallbackContent) {
+      normalized.push({ role: "user", content: fallbackContent });
+    }
+  }
+
+  return normalized;
 }
 
 // ✅ POST /api/chat
@@ -42,10 +86,16 @@ router.post("/chat", async (req, res) => {
   try {
     console.log("🧠 NIT Chat API hit");
 
-    const messages = normalizeMessages(req.body?.messages);
+    const fallbackText =
+      req.body?.message ?? req.body?.prompt ?? req.body?.text ?? null;
+
+    const messages = normalizeMessages(req.body?.messages, fallbackText);
     if (!messages.length) {
       console.warn("⚠️ Invalid messages array in request");
-      return res.status(400).json({ reply: "Invalid request format." });
+      return res.status(400).json({
+        reply:
+          "Invalid request format. Send a messages array or a single message string.",
+      });
     }
 
     const completion = await client.chat.completions.create({

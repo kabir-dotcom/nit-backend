@@ -1,38 +1,47 @@
-const mongoose = require('mongoose');
+const mongoose = require("mongoose");
 
-// Reuse the same Mongo connection across serverless invocations.
-const cached = global.mongoose || { conn: null, promise: null };
-global.mongoose = cached;
+// ✅ Maintain a global cached connection across serverless invocations
+let cached = global.mongoose;
+if (!cached) {
+  cached = global.mongoose = { conn: null, promise: null };
+}
 
 const connectDB = async () => {
-  if (!process.env.MONGO_URI) {
-    throw new Error('MONGO_URI environment variable is not defined');
+  const mongoURI = process.env.MONGO_URI || process.env.MONGODB_URI;
+
+  if (!mongoURI) {
+    throw new Error("❌ MONGO_URI (or MONGODB_URI) environment variable is not defined");
   }
 
+  // ✅ Return existing connection if available
   if (cached.conn) {
     return cached.conn;
   }
 
+  // ✅ Create new connection if not cached
   if (!cached.promise) {
-    cached.promise = mongoose.connect(process.env.MONGO_URI, {
-      autoIndex: true,
-    });
+    cached.promise = mongoose
+      .connect(mongoURI, {
+        maxPoolSize: 10,
+        serverSelectionTimeoutMS: 10000,
+        socketTimeoutMS: 45000,
+      })
+      .then((mongooseInstance) => {
+        console.log(`✅ MongoDB connected: ${mongooseInstance.connection.host}`);
+        return mongooseInstance.connection;
+      })
+      .catch((error) => {
+        console.error("❌ MongoDB connection failed:", error.message);
+        throw error;
+      });
   }
 
   try {
-    const mongooseInstance = await cached.promise;
-
-    cached.conn = mongooseInstance.connection;
-
-    if (cached.conn.readyState === 1) {
-      console.log(`MongoDB connected: ${cached.conn.host}`);
-    }
-
+    cached.conn = await cached.promise;
     return cached.conn;
-  } catch (error) {
+  } catch (err) {
     cached.promise = null;
-    console.error('MongoDB connection error:', error.message);
-    throw error;
+    throw err;
   }
 };
 

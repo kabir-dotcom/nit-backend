@@ -15,34 +15,71 @@ function getClient() {
   return client;
 }
 
-function normalizeMessages(messages) {
-  if (!Array.isArray(messages)) {
-    return [];
+function toPlainText(input) {
+  if (input == null) {
+    return '';
   }
 
-  return messages
-    .map(message => {
-      if (!message || typeof message !== 'object') {
-        return null;
-      }
+  if (typeof input === 'string') {
+    return input.trim();
+  }
 
-      const role =
-        typeof message.role === 'string' && message.role.trim()
-          ? message.role.trim()
-          : 'user';
+  if (Array.isArray(input)) {
+    return input
+      .map(item => toPlainText(item))
+      .filter(Boolean)
+      .join('\n\n')
+      .trim();
+  }
 
-      const content =
-        typeof message.content === 'string'
-          ? message.content.trim()
-          : String(message.content ?? '').trim();
+  if (typeof input === 'object') {
+    if (typeof input.text === 'string') {
+      return input.text.trim();
+    }
 
-      if (!content) {
-        return null;
-      }
+    if (typeof input.content === 'string') {
+      return input.content.trim();
+    }
 
-      return { role, content };
-    })
-    .filter(Boolean);
+    return '';
+  }
+
+  return String(input).trim();
+}
+
+function normalizeMessages(messages, fallbackText) {
+  const normalized = Array.isArray(messages)
+    ? messages
+        .map(message => {
+          if (!message || typeof message !== 'object') {
+            return null;
+          }
+
+          const role =
+            typeof message.role === 'string' && message.role.trim()
+              ? message.role.trim()
+              : 'user';
+
+          const content = toPlainText(message.content);
+
+          if (!content) {
+            return null;
+          }
+
+          return { role, content };
+        })
+        .filter(Boolean)
+    : [];
+
+  if (!normalized.length && fallbackText) {
+    const fallbackContent = toPlainText(fallbackText);
+
+    if (fallbackContent) {
+      normalized.push({ role: 'user', content: fallbackContent });
+    }
+  }
+
+  return normalized;
 }
 
 router.post('/chat', async (req, res) => {
@@ -53,11 +90,15 @@ router.post('/chat', async (req, res) => {
     });
   }
 
-  const sanitizedMessages = normalizeMessages(req.body?.messages);
+  const fallbackText =
+    req.body?.message ?? req.body?.prompt ?? req.body?.text ?? null;
+
+  const sanitizedMessages = normalizeMessages(req.body?.messages, fallbackText);
 
   if (!sanitizedMessages.length) {
     return res.status(400).json({
-      message: 'Invalid request body: expected messages array with content.',
+      message:
+        'Invalid request body: provide a messages array or a single message string.',
     });
   }
 
