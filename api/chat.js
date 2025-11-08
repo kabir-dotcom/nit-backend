@@ -83,7 +83,9 @@ function normalizeMessages(messages, fallbackText) {
 
 // ✅ POST /api/chat
 router.post("/chat", async (req, res) => {
-  const timeoutMs = Number(process.env.OPENAI_TIMEOUT_MS || 30000);
+  const timeoutMs = Number(
+    process.env.OPENAI_TIMEOUT_MS || (process.env.VERCEL ? 8000 : 25000)
+  );
   let timeoutId;
   const timeoutReply =
     "I needed a little more time to analyze fully. Meanwhile, follow core NIT basics: detox gently, hydrate well, load colorful fruits/greens for enzymes, and keep your rest schedule consistent.";
@@ -103,18 +105,27 @@ router.post("/chat", async (req, res) => {
       });
     }
 
-    const controller = new AbortController();
-    timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    const completionPromise = client.chat.completions.create({
+      model: "gpt-4o-mini",
+      temperature: 0.7,
+      max_tokens: Number(process.env.OPENAI_MAX_TOKENS || 600),
+      messages: [SYSTEM_MESSAGE, ...messages],
+    });
 
-    const completion = await client.chat.completions.create(
-      {
-        model: "gpt-4o-mini",
-        temperature: 0.7,
-        max_tokens: Number(process.env.OPENAI_MAX_TOKENS || 600),
-        messages: [SYSTEM_MESSAGE, ...messages],
-      },
-      { signal: controller.signal }
+    completionPromise.catch((error) =>
+      console.warn("OpenAI completion finished after timeout", error?.message)
     );
+
+    const timeoutPromise = new Promise((_, reject) => {
+      timeoutId = setTimeout(() => {
+        reject(new Error("OpenAI request exceeded timeout budget"));
+      }, timeoutMs);
+    });
+
+    const completion = await Promise.race([
+      completionPromise,
+      timeoutPromise,
+    ]);
 
     const reply =
       completion?.choices?.[0]?.message?.content?.trim() ||
@@ -125,7 +136,7 @@ router.post("/chat", async (req, res) => {
   } catch (error) {
     const timedOut =
       error?.name === "AbortError" ||
-      /timed out|abort/i.test(error?.message || "");
+      /timeout budget|timed out|abort/i.test(error?.message || "");
     console.error("❌ Chat route error:", error.message);
 
     // Graceful fallback
